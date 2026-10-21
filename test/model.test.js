@@ -102,3 +102,10 @@ test("flanking reports 0 at low water and 1 at high water", () => {
   assert.equal(M.flanking(ex, HOUR, 2).fraction, 1)
   assert.equal(M.flanking(ex, HOUR, 1).rising, true)
 })
+
+test("parsePrefsFile defaults the countdown on and reads a saved choice", () => {
+  assert.equal(M.parsePrefsFile("").showCountdown, true)
+  assert.equal(M.parsePrefsFile("{not json").showCountdown, true)
+  assert.equal(M.parsePrefsFile('{"showCountdown":false}').showCountdown, false)
+  assert.equal(M.parsePrefsFile('{"showCountdown":"no"}').showCountdown, true)
+})

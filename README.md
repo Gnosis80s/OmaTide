@@ -65,6 +65,8 @@ omarchy plugin enable gnosis.tide --section center
 - **Middle click**: refresh the tide data.
 - **Hover** the pill: peek at the current state (location · rising/falling ·
   level · time to the next high/low).
+- **Countdown on bar** (toggle at the foot of the panel): hide the countdown
+  to leave just the gauge and its ▲/▼ on the bar. Saved across restarts.
 - In the panel, click the location to search; pick a suggestion to load that
   place. The chosen location persists across restarts.
 
@@ -78,7 +80,8 @@ omarchy plugin enable gnosis.tide --section center
   access to `api.openwaters.io` (tides) and `api.open-meteo.com` (geocoding and
   sunrise/sunset) at least once for fresh data.
 - Data is cached to `~/.local/state/omarchy/settings/gnosis-tide-<location>-<coords>-*.json`
-  and the location to `gnosis-tide-location.json` for offline use. The footer
+  and the location to `gnosis-tide-location.json` for offline use. The
+  countdown toggle is kept in `gnosis-tide-prefs.json`. The footer
   shows how fresh the data is ("UPDATED 3M AGO", or "CACHED DATA" offline).
 - The bar pill and panel accent colors follow your active Omarchy theme.
 

@@ -442,6 +442,17 @@ function parseLocationFile(raw) {
   }
 }
 
+// Preferences file: JSON { showCountdown }. Defaults on, and tolerant of an
+// absent or corrupt file.
+function parsePrefsFile(raw) {
+  var prefs = { showCountdown: true }
+  try {
+    var data = JSON.parse(String(raw || ""))
+    if (data && typeof data.showCountdown === "boolean") prefs.showCountdown = data.showCountdown
+  } catch (e) {}
+  return prefs
+}
+
 // Filesystem-safe slug for the per-location cache filenames. The coordinates
 // are part of it so two places sharing a name (Portland, ME / Portland, OR)
 // never read each other's cache.
@@ -640,6 +651,7 @@ if (typeof module !== "undefined") {
     tideState: tideState,
     barLabel: barLabel,
     parseLocationFile: parseLocationFile,
+    parsePrefsFile: parsePrefsFile,
     locationSlug: locationSlug,
     parseGeocodingResults: parseGeocodingResults,
     locationCommit: locationCommit,

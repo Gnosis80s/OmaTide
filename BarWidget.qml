@@ -193,8 +193,11 @@ BarWidget {
         }
       }
 
+      // Countdown. The panel's toggle can hide it, but only while the gauge is
+      // up: without the gauge this text ("TIDE", "…", "NO DATA") is the pill.
       Text {
         anchors.verticalCenter: parent.verticalCenter
+        visible: !root.hasData || !panelLoader.item || panelLoader.item.showCountdown !== false
         textFormat: Text.PlainText
         text: panelLoader.item ? panelLoader.item.label : ""
         color: button.foreground

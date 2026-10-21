@@ -78,6 +78,11 @@ Panel {
   // Sanitized location name keys the per-location disk caches.
   property string cacheSlug: "nolocation"
   readonly property string locationFilePath: root.settingsDir + "/gnosis-tide-location.json"
+  readonly property string prefsFilePath: root.settingsDir + "/gnosis-tide-prefs.json"
+
+  // Whether the bar pill shows the countdown beside its gauge. Read by
+  // BarWidget.qml; flipped by the toggle at the foot of the panel.
+  property bool showCountdown: true
   readonly property string extremesCachePath: root.settingsDir + "/gnosis-tide-" + root.cacheSlug + "-extremes.json"
   readonly property string timelineCachePath: root.settingsDir + "/gnosis-tide-" + root.cacheSlug + "-timeline.json"
 
@@ -400,6 +405,17 @@ Panel {
     root.configuredLocationState = { name: "", latitude: null, longitude: null }
     root.persistLocation()
     root.cancelEditingLocation()
+  }
+
+  function setShowCountdown(value) {
+    // Set first so the pill reacts at once; the file write follows.
+    root.showCountdown = value
+    prefsSaveProc.command = ["bash", "-c",
+      "mkdir -p \"$0\" && printf '%s' \"$1\" > \"$2\"",
+      root.settingsDir,
+      JSON.stringify({ showCountdown: value }),
+      root.prefsFilePath]
+    prefsSaveProc.running = true
   }
 
   function persistLocation() {
@@ -744,6 +760,20 @@ Panel {
       var parsed = Model.parseSunTimes(text(), root.nowMs)
       if (parsed) root.sunTimes = parsed
     }
+  }
+
+  // ---- Persisted preferences, kept in sync the same way as the location.
+  property FileView prefsFile: FileView {
+    path: root.prefsFilePath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.showCountdown = Model.parsePrefsFile(text()).showCountdown
+    onLoadFailed: root.showCountdown = Model.parsePrefsFile("").showCountdown
+  }
+
+  Process {
+    id: prefsSaveProc
   }
 
   // ---- Persisted location. watchChanges keeps the shell and any external
@@ -1932,6 +1962,52 @@ Panel {
                 font.pixelSize: Style.font.caption
                 font.letterSpacing: 1
               }
+            }
+          }
+
+          // ---- Bar option: show or hide the countdown beside the pill's
+          //      gauge. The whole row is the click target; the switch only
+          //      displays the state.
+          Item {
+            width: parent.width
+            height: countdownRow.implicitHeight + Style.space(6)
+
+            Row {
+              id: countdownRow
+              anchors.left: parent.left
+              anchors.leftMargin: root.contentInset
+              anchors.right: parent.right
+              anchors.rightMargin: root.contentInset
+              anchors.verticalCenter: parent.verticalCenter
+
+              Text {
+                textFormat: Text.PlainText
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width - countdownSwitch.width
+                text: "COUNTDOWN ON BAR"
+                color: countdownMouse.containsMouse ? root.onFg(0.75) : root.onFg(0.48)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1
+              }
+
+              ToggleSwitch {
+                id: countdownSwitch
+                anchors.verticalCenter: parent.verticalCenter
+                checked: root.showCountdown
+                interactive: false
+                trackHeight: Style.space(14)
+                foreground: root.contentForeground
+                accent: Color.accent
+              }
+            }
+
+            MouseArea {
+              id: countdownMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.setShowCountdown(!root.showCountdown)
             }
           }
         }
