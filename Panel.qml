@@ -82,23 +82,39 @@ Panel {
   readonly property string timelineCachePath: root.settingsDir + "/gnosis-tide-" + root.cacheSlug + "-timeline.json"
 
   readonly property var nextEvent: Model.firstAfter(root.extremes, root.nowMs)
-  readonly property var nextHighEvent: Model.firstHighAfter(root.extremes, root.nowMs)
-  readonly property var nextLowEvent: Model.firstLowAfter(root.extremes, root.nowMs)
   readonly property var tideNow: Model.currentLevel(root.timeline, root.extremes, root.nowMs)
   readonly property var upcoming: Model.nextWindow(root.extremes, root.nowMs, 4)
   readonly property var phaseInfo: Model.flanking(root.extremes, root.nowMs, root.tideNow ? root.tideNow.level : NaN)
 
   readonly property int contentInset: Style.space(20)
 
+  // Every time in the panel and the pill is read on the picked location's own
+  // clock once the sun API has reported its offset (desktop clock until then).
+  readonly property var tzOffset: root.sunTimes ? root.sunTimes.offsetMs : null
+  readonly property bool tzDiffers: root.tzOffset !== null
+    && root.tzOffset !== Model.zoneOffset(root.nowMs, null)
+  function timeText(ms) { return Model.formatTime(ms, root.tzOffset) }
+
+  // Small-range coasts get two decimals so readings don't all collapse to 0.1 m.
+  readonly property int heightDecimals: Model.heightDecimals(root.extremes)
+  function heightText(level) { return Model.heightText(level, root.heightDecimals) }
+
+  // Wall-clock instant of the last successful tide fetch (0 = showing cache).
+  property real lastUpdatedMs: 0
+
   // Consumed by BarWidget.qml for the pill. Stays visible before any location
   // is picked so the panel stays reachable (opening it then starts the search).
   readonly property string label: (function() {
     if (!root.hasLocation) return "TIDE"
-    if (!root.dataLoaded) return "…"
-    return Model.barLabel(root.extremes, root.nowMs, root.dataLoaded)
+    if (!root.dataLoaded) return root.dataFailed ? "NO DATA" : "…"
+    return Model.barLabel(root.extremes, root.nowMs, root.dataLoaded, root.tzOffset)
   })()
 
   readonly property string stateText: Model.tideState(root.nextEvent)
+  // "LOW IN 4H 21M" — the headline countdown beside the tide state.
+  readonly property string nextEventText: root.nextEvent
+    ? (root.nextEvent.high ? "HIGH" : "LOW") + " IN " + Model.durationText(root.nextEvent.ms - root.nowMs)
+    : ""
   readonly property var moon: Model.moonInfo(root.nowMs)
   readonly property string moonPhase: root.moon ? root.moon.phase.toUpperCase() : ""
   readonly property string moonSubline: (function() {
@@ -110,8 +126,20 @@ Panel {
     var s = root.daylightInfo
     if (!s) return ""
     return s.daylight
-      ? Model.durationText(s.remainingMs) + " LEFT"
-      : Model.durationText(s.untilMs) + " TO DAYLIGHT"
+      ? "SUNSET IN " + Model.durationText(s.remainingMs)
+      : "SUNRISE IN " + Model.durationText(s.untilMs)
+  })()
+  // Gauge summary: 0% at low water, 100% at high, whichever way it runs.
+  readonly property string rangeText: (function() {
+    var p = root.phaseInfo
+    if (!p) return ""
+    return Math.round(p.fraction * 100) + "% FULL"
+  })()
+  readonly property string updatedText: (function() {
+    if (!root.dataLoaded) return ""
+    if (root.lastUpdatedMs <= 0) return "CACHED DATA"
+    var age = root.nowMs - root.lastUpdatedMs
+    return age < 60000 ? "UPDATED JUST NOW" : "UPDATED " + Model.durationText(age) + " AGO"
   })()
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
@@ -218,6 +246,7 @@ Panel {
     root.sunTimes = null
     root.sunCachePending = ""
     root.dataLoaded = false
+    root.lastUpdatedMs = 0
     root.tick()
   }
 
@@ -227,7 +256,8 @@ Panel {
   // norm and refetches the exception.
   function applyLocation() {
     var key = root.locationKey
-    root.cacheSlug = root.hasLocation ? Model.locationSlug(root.configuredLocationState.name) : "nolocation"
+    var loc = root.configuredLocationState
+    root.cacheSlug = root.hasLocation ? Model.locationSlug(loc.name, loc.latitude, loc.longitude) : "nolocation"
 
     if (key === root.appliedLocationKey) {
       root.loadCaches()
@@ -242,6 +272,10 @@ Panel {
 
   function refresh() {
     if (!root.hasLocation) return
+    // A fresh round gets a fresh retry budget; retries only cover one round.
+    root.extremesRetries = 0
+    root.timelineRetries = 0
+    root.sunRetries = 0
     root.tick()
     root.requestTides()
     root.requestSun()
@@ -250,21 +284,25 @@ Panel {
   function onExtremesFetched(raw) {
     // A body for a place the user has already moved off from must not land.
     if (root.extremesActiveKey === "" || root.extremesActiveKey !== root.locationKey) return
+    // An empty body is a failed curl; onExited arms that retry, so counting it
+    // here too would spend two retries per failure.
+    if (String(raw || "").trim() === "") return
     var parsed = Model.parseExtremes(raw)
     if (parsed.length === 0) {
-      if (root.extremesRetries < 3) root.retryExtremes()
-      else if (root.hasLocation) root.dataFailed = true
+      root.retryExtremes()
       return
     }
     root.extremesRetries = 0
     root.dataFailed = false
     root.extremes = parsed
     root.dataLoaded = true
+    root.lastUpdatedMs = (new Date()).getTime()
     root.tick()
   }
 
   function onTimelineFetched(raw) {
     if (root.timelineActiveKey === "" || root.timelineActiveKey !== root.locationKey) return
+    if (String(raw || "").trim() === "") return
     var parsed = Model.parseTimeline(raw)
     if (parsed.length === 0) {
       root.retryTimeline()
@@ -529,7 +567,12 @@ Panel {
   // A retry belongs to whatever location is current when it fires, so the stale
   // key is dropped first and the requester is free to re-arm it.
   function retryExtremes() {
-    if (!root.hasLocation || root.extremesRetries >= 3) return
+    if (!root.hasLocation) return
+    if (root.extremesRetries >= 3) {
+      // Out of retries: say so instead of leaving "…" up indefinitely.
+      root.dataFailed = true
+      return
+    }
     root.extremesRetries++
     root.extremesActiveKey = ""
     extremesRetryTimer.restart()
@@ -620,6 +663,8 @@ Panel {
     // `finished` is the request this body belongs to. A reply for a place the
     // user has already moved off from must not land.
     var finished = root.sunActiveKey
+    // Empty body = failed curl, already retried from onExited.
+    if (String(raw || "").trim() === "") return
     if (finished !== "" && finished === root.sunRequestKey) {
       var parsed = Model.parseSunTimes(raw, root.nowMs)
       if (parsed) {
@@ -784,58 +829,23 @@ Panel {
           width: tideScroll.width
           spacing: Style.space(16)
 
-          // ---- Head
+          // ---- Head: the current place (or the live search box that replaces
+          //      it) on the left, and the tide's state with a countdown to the
+          //      next high/low on the right — the panel's headline answer.
           Item {
+            id: locationRoot
             width: parent.width
-            height: Math.max(lunarBlock.implicitHeight, headRight.implicitHeight)
-
-            Row {
-              id: lunarBlock
-              anchors.left: parent.left
-              anchors.leftMargin: root.contentInset
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(16)
-
-              Canvas {
-                id: moonCanvas
-                width: Style.space(76)
-                height: width
-                onPaint: root.paintMoon(getContext("2d"))
-                Component.onCompleted: requestPaint()
-              }
-
-              Column {
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.space(3)
-
-                Text {
-                  textFormat: Text.PlainText
-                  text: root.moonPhase
-                  color: root.contentForeground
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.caption
-                  font.letterSpacing: 1.6
-                  font.bold: true
-                }
-
-                Text {
-                  textFormat: Text.PlainText
-                  width: Style.space(300)
-                  text: root.moonSubline
-                  color: root.onFg(0.6)
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.caption
-                  font.letterSpacing: 1
-                }
-              }
-            }
+            height: root.editingLocation
+              ? locationEditor.implicitHeight
+              : Math.max(locationBar.implicitHeight, headState.implicitHeight)
 
             Column {
-              id: headRight
+              id: headState
+              visible: !root.editingLocation && root.hasLocation && root.stateText !== ""
               anchors.right: parent.right
               anchors.rightMargin: root.contentInset
               anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(2)
+              spacing: Style.space(1)
 
               Text {
                 textFormat: Text.PlainText
@@ -843,20 +853,21 @@ Panel {
                 text: root.stateText
                 color: Color.accent
                 font.family: root.contentFontFamily
-                font.pixelSize: Style.font.caption
+                font.pixelSize: Style.font.heading
                 font.letterSpacing: 1.4
                 font.bold: true
               }
-            }
-          }
 
-          // ---- Location: the current place, or the live search box that replaces
-          //      it. The hero's big next-event time is gone — the pill, wave,
-          //      gauge and COMING UP list carry that now.
-          Item {
-            id: locationRoot
-            width: parent.width
-            height: root.editingLocation ? locationEditor.implicitHeight : locationBar.implicitHeight
+              Text {
+                textFormat: Text.PlainText
+                anchors.right: parent.right
+                text: root.nextEventText
+                color: root.onFg(0.6)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1.1
+              }
+            }
 
             Row {
               id: locationBar
@@ -884,6 +895,8 @@ Panel {
                   text: root.displayLocationName === ""
                     ? "SEARCH FOR A LOCATION"
                     : root.displayLocationName.toUpperCase()
+                  width: Math.min(implicitWidth, Style.space(250))
+                  elide: Text.ElideRight
                   color: root.contentForeground
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.heading
@@ -894,8 +907,10 @@ Panel {
                 Text {
                   textFormat: Text.PlainText
                   text: root.displayLocationName === ""
-                    ? "Tap to find a coastal place for its tide times"
-                    : "TAP TO CHANGE LOCATION"
+                    ? "Click to find a coastal place for its tide times"
+                    : root.tzDiffers
+                      ? "CLICK TO CHANGE · TIMES " + Model.utcLabel(root.tzOffset)
+                      : "CLICK TO CHANGE"
                   color: root.onFg(0.55)
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.caption
@@ -1007,7 +1022,7 @@ Panel {
             }
 
             MouseArea {
-              anchors.fill: parent
+              anchors.fill: locationBar
               visible: !root.editingLocation
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
@@ -1082,9 +1097,9 @@ Panel {
               property var nowMs: root.nowMs
               property color lineColor: Color.accent
 
-              // Symmetric gutters on the wave: the outermost time labels sit
-              // on the plot's own edges, so both sides need the same room.
-              readonly property real padL: Style.spaceReal(16)
+              // The left gutter holds the height scale; the right one only needs
+              // room for the last time label, centred on the plot's edge.
+              readonly property real padL: Style.spaceReal(44)
               readonly property real padR: Style.spaceReal(16)
               readonly property real padT: Style.spaceReal(22)
               readonly property real padB: Style.spaceReal(18)
@@ -1093,48 +1108,51 @@ Panel {
               readonly property real yTop: wave.padT
               readonly property real yBase: wave.height - wave.padB
 
-              function domain() {
+              // Computed once per sample change rather than on every xx/yOf.
+              // rawMin/rawMax are the true extremes the scale labels report;
+              // minLv/maxLv carry 10% headroom so the curve clears the edges.
+              readonly property var domain: (function() {
                 var pts = wave.samples || []
                 var n = pts.length
                 if (n < 2) return null
-                var minLv = Infinity
-                var maxLv = -Infinity
+                var rawMin = Infinity
+                var rawMax = -Infinity
                 for (var i = 0; i < n; i++) {
                   var lv = pts[i].level
-                  if (lv < minLv) minLv = lv
-                  if (lv > maxLv) maxLv = lv
+                  if (lv < rawMin) rawMin = lv
+                  if (lv > rawMax) rawMax = lv
                 }
-                var pad = (maxLv - minLv) * 0.10
-                minLv -= pad
-                maxLv += pad
+                var pad = (rawMax - rawMin) * 0.10
                 return {
                   startMs: pts[0].ms,
                   endMs: pts[n - 1].ms,
                   spanMs: (pts[n - 1].ms - pts[0].ms) || 1,
-                  minLv: minLv,
-                  maxLv: maxLv,
-                  lvSpan: (maxLv - minLv) || 1
+                  rawMin: rawMin,
+                  rawMax: rawMax,
+                  minLv: rawMin - pad,
+                  maxLv: rawMax + pad,
+                  lvSpan: (rawMax - rawMin + 2 * pad) || 1
                 }
-              }
+              })()
 
               function xx(t) {
-                var d = wave.domain()
+                var d = wave.domain
                 return d ? wave.x0 + (t - d.startMs) / d.spanMs * (wave.x1 - wave.x0) : 0
               }
 
               function yOf(lv) {
-                var d = wave.domain()
+                var d = wave.domain
                 return d ? wave.yBase - (lv - d.minLv) / d.lvSpan * (wave.yBase - wave.yTop) : 0
-              }
-
-              function lvText(l) {
-                return l.toFixed(1) + " m"
               }
 
               function points(fromIdx, toIdx, closeArea) {
                 var pts = wave.samples || []
-                var d = wave.domain()
+                var d = wave.domain
                 var out = []
+                // nowIdx can still be sized for the previous sample set for one
+                // binding pass after the samples change; clamp to what exists.
+                fromIdx = Math.max(0, fromIdx)
+                toIdx = Math.min(toIdx, pts.length - 1)
                 if (d && fromIdx <= toIdx) {
                   for (var i = fromIdx; i <= toIdx; i++) {
                     out.push(Qt.point(wave.xx(pts[i].ms), wave.yOf(pts[i].level)))
@@ -1159,10 +1177,12 @@ Panel {
               readonly property var polyFuture: wave.points(wave.nowIdx, (wave.samples ? wave.samples.length : 1) - 1, false)
               readonly property var polyArea: wave.points(0, (wave.samples ? wave.samples.length : 1) - 1, true)
 
+              // Gridlines at the window's lowest, middle and highest water,
+              // each labelled with its height in the left gutter.
               readonly property var gridLevels: (function() {
-                var d = wave.domain()
+                var d = wave.domain
                 if (!d) return []
-                return [ d.minLv, (d.minLv + d.maxLv) / 2, d.maxLv ]
+                return [ d.rawMin, (d.rawMin + d.rawMax) / 2, d.rawMax ]
               })()
 
               readonly property var ticks: (function() {
@@ -1171,7 +1191,7 @@ Panel {
                 for (var o = -6; o <= 18; o += 6) {
                   var tx = wave.xx(ms + o * 3600 * 1000)
                   if (tx < wave.x0 - Style.spaceReal(2) || tx > wave.x1 + Style.spaceReal(2)) continue
-                  out.push({ x: tx, label: Model.formatTime(ms + o * 3600 * 1000), now: o === 0 })
+                  out.push({ x: tx, label: root.timeText(ms + o * 3600 * 1000), now: o === 0 })
                 }
                 return out
               })()
@@ -1183,7 +1203,7 @@ Panel {
                   var ev = m[i]
                   var mx = wave.xx(ev.ms)
                   if (mx < wave.x0 || mx > wave.x1) continue
-                  out.push({ x: mx, y: wave.yOf(ev.level), high: ev.high, label: (ev.high ? "▲ " : "▼ ") + Model.formatTime(ev.ms) })
+                  out.push({ x: mx, y: wave.yOf(ev.level), high: ev.high })
                 }
                 return out
               })()
@@ -1242,8 +1262,8 @@ Panel {
                 }
               }
 
-              // ---- grid: three faint horizontal level lines (no labels —
-              //      the LOW/HIGH captions below carry the meter values).
+              // ---- grid: three faint horizontal level lines with their
+              //      heights in the left gutter.
               Repeater {
                 model: wave.gridLevels
                 delegate: Item {
@@ -1254,6 +1274,15 @@ Panel {
                     width: wave.x1 - wave.x0
                     height: 1
                     color: Qt.rgba(wave.lineColor.r, wave.lineColor.g, wave.lineColor.b, 0.10)
+                  }
+                  Text {
+                    textFormat: Text.PlainText
+                    x: wave.x0 - implicitWidth - Style.spaceReal(6)
+                    y: wave.yOf(parent.modelData) - implicitHeight / 2
+                    text: root.heightText(parent.modelData)
+                    color: root.onFg(0.45)
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.spaceReal(9)
                   }
                 }
               }
@@ -1299,15 +1328,18 @@ Panel {
                     color: Qt.rgba(Color.popups.background.r, Color.popups.background.g, Color.popups.background.b, 0.92)
                     border.width: 1
                     border.color: Qt.rgba(wave.lineColor.r, wave.lineColor.g, wave.lineColor.b, 0.4)
-                  }
-                  Text {
-                    textFormat: Text.PlainText
-                    anchors.centerIn: parent
-                    text: parent.modelData.high ? "▲" : "▼"
-                    color: parent.modelData.high ? wave.lineColor : Qt.rgba(wave.lineColor.r, wave.lineColor.g, wave.lineColor.b, 0.7)
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.spaceReal(9)
-                    font.bold: true
+
+                    // Inside the badge: centring on the zero-size delegate
+                    // stacked every arrow at the chart's top-left corner.
+                    Text {
+                      textFormat: Text.PlainText
+                      anchors.centerIn: parent
+                      text: parent.parent.modelData.high ? "▲" : "▼"
+                      color: parent.parent.modelData.high ? wave.lineColor : Qt.rgba(wave.lineColor.r, wave.lineColor.g, wave.lineColor.b, 0.7)
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.spaceReal(9)
+                      font.bold: true
+                    }
                   }
                 }
               }
@@ -1396,7 +1428,7 @@ Panel {
                   anchors.left: parent.left
                   anchors.verticalCenter: parent.verticalCenter
                   text: root.phaseInfo
-                    ? "LOW ▼ " + Model.formatTime(root.phaseInfo.low.ms) + "  ·  " + Model.heightText(root.phaseInfo.low.level)
+                    ? "LOW ▼ " + root.timeText(root.phaseInfo.low.ms) + "  ·  " + root.heightText(root.phaseInfo.low.level)
                     : "LOW"
                   color: root.onFg(0.6)
                   font.family: root.contentFontFamily
@@ -1412,7 +1444,7 @@ Panel {
                   width: parent.width
                   horizontalAlignment: Text.AlignRight
                   text: root.phaseInfo
-                    ? "HIGH ▲ " + Model.formatTime(root.phaseInfo.high.ms) + "  ·  " + Model.heightText(root.phaseInfo.high.level)
+                    ? "HIGH ▲ " + root.timeText(root.phaseInfo.high.ms) + "  ·  " + root.heightText(root.phaseInfo.high.level)
                     : "HIGH"
                   color: root.onFg(0.6)
                   font.family: root.contentFontFamily
@@ -1466,7 +1498,7 @@ Panel {
                 anchors.topMargin: Style.space(8)
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.phaseInfo
-                  ? root.stateText + "  ·  " + Math.round(root.phaseInfo.fraction * 100) + "% OF RANGE  ·  NOW " + Model.heightText(root.phaseInfo.level)
+                  ? "NOW " + root.heightText(root.phaseInfo.level) + "  ·  " + root.rangeText + "  ·  " + root.stateText
                   : "…"
                 color: root.onFg(0.65)
                 font.family: root.contentFontFamily
@@ -1489,7 +1521,7 @@ Panel {
               id: comingUpCol
               x: root.contentInset
               anchors.top: parent.top
-              width: Style.space(180)
+              width: Style.space(190)
               spacing: Style.space(2)
 
               Text {
@@ -1522,7 +1554,7 @@ Panel {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     width: Style.space(100)
-                    text: Model.formatDayTime(modelData.ms)
+                    text: Model.dayLabel(modelData.ms, root.nowMs, root.tzOffset) + " " + root.timeText(modelData.ms)
                     color: parent.rowForeground
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.body
@@ -1546,8 +1578,8 @@ Panel {
                     anchors.left: parent.left
                     anchors.leftMargin: Style.space(124)
                     anchors.verticalCenter: parent.verticalCenter
-                    width: Style.space(52)
-                    text: Model.heightText(modelData.level)
+                    width: Style.space(62)
+                    text: root.heightText(modelData.level)
                     color: parent.rowForeground
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.body
@@ -1566,51 +1598,30 @@ Panel {
               width: parent.width - root.contentInset * 2 - comingUpCol.width - Style.space(24)
               spacing: Style.space(8)
 
-              // ---- Daylight header, matching the other section headers, with
-              //      the remaining/until-daylight readout on the right.
-              Item {
-                width: parent.width
-                height: Math.max(daylightHeaderTitle.implicitHeight, daylightHeaderNote.implicitHeight)
-
-                Text {
-                  id: daylightHeaderTitle
-                  textFormat: Text.PlainText
-                  anchors.left: parent.left
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: "DAYLIGHT"
-                  color: root.onFg(0.55)
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.caption
-                  font.letterSpacing: 1.4
-                  font.bold: true
-                }
-
-                Text {
-                  id: daylightHeaderNote
-                  textFormat: Text.PlainText
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: root.daylightText
-                  color: Color.accent
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.caption
-                  font.letterSpacing: 1
-                  font.bold: true
-                  visible: text !== ""
-                }
+              // ---- Daylight header, matching the other section headers. The
+              //      sunset/sunrise countdown sits under the chart: the column
+              //      is too narrow to share a line with the title.
+              Text {
+                textFormat: Text.PlainText
+                text: "DAYLIGHT"
+                color: root.onFg(0.55)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1.4
+                font.bold: true
               }
 
               // ---- Sun arc chart.
               Item {
                 id: sunChart
                 width: parent.width
-                height: Style.space(110)
+                height: Style.space(88)
                 visible: root.sunTimes !== null
 
                 readonly property real x0: Style.spaceReal(2)
                 readonly property real x1: sunChart.width - Style.spaceReal(2)
                 readonly property real yTop: Style.spaceReal(14)
-                readonly property real yBase: sunChart.height - Style.spaceReal(24)
+                readonly property real yBase: sunChart.height - Style.spaceReal(4)
                 readonly property color lineColor: Color.accent
 
                 // The chart spans one *local* day at the picked location —
@@ -1818,13 +1829,27 @@ Panel {
                   color: sunChart.lineColor
                 }
               }
+
+              Text {
+                textFormat: Text.PlainText
+                anchors.right: parent.right
+                visible: text !== ""
+                text: root.daylightText
+                color: Color.accent
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1
+                font.bold: true
+              }
             }
           }
 
-          // ---- Footer
+          // ---- Footer: the moon on the left (secondary to the tide, so it
+          //      lives down here rather than heading the panel), and the data
+          //      source with how fresh it is on the right.
           Item {
             width: parent.width
-            height: Math.max(footLeft.implicitHeight, footRight.implicitHeight) + Style.space(12)
+            height: Math.max(moonRow.implicitHeight, footRight.implicitHeight) + Style.space(14)
 
             Rectangle {
               anchors.left: parent.left
@@ -1838,36 +1863,74 @@ Panel {
             }
 
             Row {
-              id: footLeft
+              id: moonRow
               anchors.left: parent.left
               anchors.leftMargin: root.contentInset
               anchors.top: parent.top
-              anchors.topMargin: Style.space(10)
+              anchors.topMargin: Style.space(12)
+              spacing: Style.space(10)
+
+              Canvas {
+                id: moonCanvas
+                width: Style.space(34)
+                height: width
+                anchors.verticalCenter: parent.verticalCenter
+                onPaint: root.paintMoon(getContext("2d"))
+                Component.onCompleted: requestPaint()
+              }
+
+              Column {
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(2)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: root.moonPhase
+                  color: root.onFg(0.8)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  font.letterSpacing: 1.4
+                  font.bold: true
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: root.moonSubline
+                  color: root.onFg(0.5)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  font.letterSpacing: 1
+                }
+              }
+            }
+
+            Column {
+              id: footRight
+              anchors.right: parent.right
+              anchors.rightMargin: root.contentInset
+              anchors.verticalCenter: moonRow.verticalCenter
+              spacing: Style.space(2)
 
               Text {
                 textFormat: Text.PlainText
-                text: root.displayLocationName === ""
-                  ? "TIDE DATA"
-                  : root.displayLocationName.toUpperCase()
+                anchors.right: parent.right
+                text: "OPENWATERS.IO"
                 color: root.onFg(0.48)
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.caption
                 font.letterSpacing: 1
               }
-            }
 
-            Text {
-              id: footRight
-              textFormat: Text.PlainText
-              anchors.right: parent.right
-              anchors.rightMargin: root.contentInset
-              anchors.top: parent.top
-              anchors.topMargin: Style.space(10)
-              text: "OPENWATERS.IO"
-              color: root.onFg(0.48)
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.caption
-              font.letterSpacing: 1
+              Text {
+                textFormat: Text.PlainText
+                anchors.right: parent.right
+                visible: text !== ""
+                text: root.updatedText
+                color: root.onFg(0.4)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1
+              }
             }
           }
         }

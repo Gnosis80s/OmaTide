@@ -72,22 +72,6 @@ function firstBeforeOrAt(list, ms) {
   return last
 }
 
-function firstHighAfter(list, ms) {
-  if (!list) return null
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].ms > ms && list[i].high) return list[i]
-  }
-  return null
-}
-
-function firstLowAfter(list, ms) {
-  if (!list) return null
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].ms > ms && list[i].low) return list[i]
-  }
-  return null
-}
-
 function nextWindow(list, ms, count) {
   var out = []
   if (!list) return out
@@ -147,22 +131,6 @@ function currentLevel(timeline, extremes, ms) {
   var v = levelAtSynth(extremes, ms)
   if (!isNaN(v)) return { level: v, synced: false }
   return null
-}
-
-// Samples for the tide curve. Prefers the live timeline when it spans the
-// window; otherwise synthesises from extremes. Steps every 15 minutes.
-function windowSamples(timeline, extremes, ms, hoursAhead) {
-  var step = 15 * 60 * 1000
-  var end = ms + hoursAhead * 3600 * 1000
-  var out = []
-  var useTimeline = timeline && timeline.length > 1
-    && timeline[0].ms <= ms
-    && timeline[timeline.length - 1].ms > end
-  for (var t = ms; t <= end; t += step) {
-    var level = useTimeline ? levelAtTimeline(timeline, t) : levelAtSynth(extremes, t)
-    if (!isNaN(level)) out.push({ ms: t, level: level, live: useTimeline })
-  }
-  return out
 }
 
 // Rolling window for the phase chart: past and future, so the shape of the
@@ -235,22 +203,62 @@ function two(n) {
   return (n < 10 ? "0" : "") + n
 }
 
-function formatTime(ms) {
-  var d = new Date(ms)
-  return two(d.getHours()) + ":" + two(d.getMinutes())
+// The UTC offset every displayed time is read in: the picked location's own
+// (from the sun API) when known, else the desktop's at that instant. Tide and
+// daylight times then always share one clock.
+function zoneOffset(ms, offsetMs) {
+  if (typeof offsetMs === "number" && !isNaN(offsetMs)) return offsetMs
+  return -new Date(ms).getTimezoneOffset() * 60000
 }
 
-function dayShort(ms) {
-  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(ms).getDay()]
+// "UTC+2", "UTC-3:30", "UTC" for a zone offset.
+function utcLabel(offsetMs) {
+  var mins = Math.round((offsetMs || 0) / 60000)
+  if (mins === 0) return "UTC"
+  var sign = mins < 0 ? "-" : "+"
+  mins = Math.abs(mins)
+  var h = Math.floor(mins / 60), m = mins % 60
+  return "UTC" + sign + h + (m ? ":" + two(m) : "")
 }
 
-function formatDayTime(ms) {
-  return dayShort(ms) + " " + formatTime(ms)
+function formatTime(ms, offsetMs) {
+  return formatTimeAt(ms, zoneOffset(ms, offsetMs))
 }
 
-function heightText(level) {
+function dayShort(ms, offsetMs) {
+  var d = new Date(ms + zoneOffset(ms, offsetMs))
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()]
+}
+
+// "Today" / "Tmrw" / weekday, relative to `nowMs` on the same clock.
+function dayLabel(ms, nowMs, offsetMs) {
+  var off = zoneOffset(ms, offsetMs)
+  var diff = Math.round((localDayStart(ms, off) - localDayStart(nowMs, off)) / 86400000)
+  if (diff === 0) return "Today"
+  if (diff === 1) return "Tmrw"
+  return dayShort(ms, offsetMs)
+}
+
+// Two decimals where the whole tide range is small (enclosed seas, where one
+// decimal flattens every reading to "0.1 m"), one elsewhere.
+function heightDecimals(extremes) {
+  if (!extremes || extremes.length < 2) return 1
+  var lo = Infinity, hi = -Infinity
+  for (var i = 0; i < extremes.length; i++) {
+    var lv = extremes[i].level
+    if (isNaN(lv)) continue
+    if (lv < lo) lo = lv
+    if (lv > hi) hi = lv
+  }
+  return hi - lo < 1.5 ? 2 : 1
+}
+
+function heightText(level, decimals) {
   if (level === undefined || level === null || isNaN(level)) return "—"
-  return Number(level).toFixed(1) + " m"
+  var text = Number(level).toFixed(decimals === undefined ? 1 : decimals)
+  // A tiny negative rounds to "-0.0"; show it as plain zero.
+  if (Number(text) === 0) text = text.replace("-", "")
+  return text + " m"
 }
 
 // ---- Lunar geometry (low-precision Meeus; plenty for a widget moon).
@@ -396,10 +404,12 @@ function tideState(event) {
   return event ? (event.high ? "RISING" : "FALLING") : ""
 }
 
-function barLabel(extremes, ms, loaded) {
+// Never empty: the bar hides the pill on an empty label, and a stale cache
+// with no future event must still leave the panel reachable.
+function barLabel(extremes, ms, loaded, offsetMs) {
   var next = firstAfter(extremes, ms)
-  if (next) return arrow(next) + " " + formatTime(next.ms)
-  return loaded ? "" : "…"
+  if (next) return arrow(next) + " " + formatTime(next.ms, offsetMs)
+  return loaded ? "NO DATA" : "…"
 }
 
 // Location state file: JSON { name, latitude, longitude }; tolerant of an
@@ -420,10 +430,17 @@ function parseLocationFile(raw) {
   }
 }
 
-// Filesystem-safe slug for the per-location cache filenames.
-function locationSlug(name) {
+// Filesystem-safe slug for the per-location cache filenames. The coordinates
+// are part of it so two places sharing a name (Portland, ME / Portland, OR)
+// never read each other's cache.
+function locationSlug(name, latitude, longitude) {
   var s = String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
-  return s === "" ? "nolocation" : s
+  if (s === "") return "nolocation"
+  var lat = Number(latitude), lon = Number(longitude)
+  if (latitude === null || latitude === undefined || isNaN(lat)
+    || longitude === null || longitude === undefined || isNaN(lon)) return s
+  var coord = (lat.toFixed(3) + "_" + lon.toFixed(3)).replace(/-/g, "m").replace(/\./g, "p")
+  return s + "-" + coord
 }
 
 // Open-Meteo geocoding response → pickable rows for the search box.
@@ -557,15 +574,6 @@ function formatTimeAt(ms, offsetMs) {
   return two(d.getUTCHours()) + ":" + two(d.getUTCMinutes())
 }
 
-// Normalised sun position: 0.0 at sunrise, 1.0 at sunset, <0 before rise,
-// >1 after set.  Drives the mini sun arc in the panel footer.
-function sunPosition(sunTimes, ms) {
-  if (!sunTimes) return null
-  var span = sunTimes.set - sunTimes.rise
-  if (span <= 0) return null
-  return (ms - sunTimes.rise) / span
-}
-
 // Daylight status at an instant: whether the sun is up, and either the time
 // left until sunset (daylight) or the time until the next sunrise (dark).
 // Both instants come from the response already resolved to the location's own
@@ -602,18 +610,18 @@ if (typeof module !== "undefined") {
     parseTimeline: parseTimeline,
     firstAfter: firstAfter,
     firstBeforeOrAt: firstBeforeOrAt,
-    firstHighAfter: firstHighAfter,
-    firstLowAfter: firstLowAfter,
     nextWindow: nextWindow,
     currentLevel: currentLevel,
-    windowSamples: windowSamples,
     phaseSamples: phaseSamples,
     extremesBetween: extremesBetween,
     levelAtSamples: levelAtSamples,
     flanking: flanking,
+    zoneOffset: zoneOffset,
+    utcLabel: utcLabel,
     formatTime: formatTime,
     dayShort: dayShort,
-    formatDayTime: formatDayTime,
+    dayLabel: dayLabel,
+    heightDecimals: heightDecimals,
     heightText: heightText,
     moonInfo: moonInfo,
     arrow: arrow,
@@ -627,7 +635,6 @@ if (typeof module !== "undefined") {
     dailyMs: dailyMs,
     localDayStart: localDayStart,
     formatTimeAt: formatTimeAt,
-    sunPosition: sunPosition,
     daylightStatus: daylightStatus,
     durationText: durationText
   }

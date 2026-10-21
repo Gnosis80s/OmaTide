@@ -7,19 +7,26 @@ and HIGH) beside the next high/low time (▲/▼). Hovering the pill shows the
 current state at a glance — location, rising/falling, and the present level.
 Opening the pill rows out a panel with:
 
+- **Headline** — the place, whether the tide is rising or falling, and a
+  countdown to the next high or low ("LOW IN 4H 21M").
 - **Tide phase** — a rolling 6 h back / 18 h ahead wave of the water level
-  with a NOW marker, clean ▲/▼ event badges on the curve, and a LOW→HIGH
-  water gauge for the current half-cycle.
-- **Upcoming events** — the next four high/low tides with time, level, and
-  how far the tide will still move (range %).
+  with a NOW marker, ▲/▼ badges on each high and low, a height scale, and a
+  LOW→HIGH water gauge showing how full the tide is right now.
+- **Coming up** — the next four high/low tides with day (Today / Tmrw /
+  weekday), time and level. Heights get two decimals on coasts with a small
+  tidal range so readings stay distinct.
 - **Daylight** — the day's sun arc with dashed sunrise/sunset hairlines (times
   read straight off the chart) and a dot marking the sun's position right now.
   Also shown: night shading outside the daylight window, and how long is left
   in daylight (or, after dark, how long until daylight). The arc spans one
   local day *at the picked location*, and every time shown is that place's own
   wall clock — the desktop's timezone is never applied.
-- **Moon phase** — a drawn lunar disc (lit side facing the sun, waxing right,
+- **Moon phase** (footer) — a drawn lunar disc (lit side facing the sun, waxing right,
   waning left) with phase, % lit, and age alongside.
+
+All times — tides and daylight alike — are the picked place's own wall
+clock. When that differs from the desktop's timezone, the panel says so under
+the location name ("TIMES UTC+2").
 
 A live location search picks any coastal place. The pick resolves to the
 nearest published tide reference station via the Open Waters tide API
@@ -55,8 +62,9 @@ omarchy plugin enable gnosis.tide --section center
 
 - **Left click** on the pill: open/close the tide panel.
 - **Middle click**: refresh the tide data.
-- **Hover** the pill: peek at the current state (location · phase · level).
-- In the panel, tap the location to search; pick a suggestion to load that
+- **Hover** the pill: peek at the current state (location · rising/falling ·
+  level · time to the next high/low).
+- In the panel, click the location to search; pick a suggestion to load that
   place. The chosen location persists across restarts.
 
 ## Notes
@@ -68,8 +76,9 @@ omarchy plugin enable gnosis.tide --section center
 - Requires `curl`, `bash`, and GNU `date` (all standard on Arch), plus network
   access to `api.openwaters.io` (tides) and `api.open-meteo.com` (geocoding and
   sunrise/sunset) at least once for fresh data.
-- Data is cached to `~/.local/state/omarchy/settings/gnosis-tide-<location>-*.json`
-  and the location to `gnosis-tide-location.json` for offline use.
+- Data is cached to `~/.local/state/omarchy/settings/gnosis-tide-<location>-<coords>-*.json`
+  and the location to `gnosis-tide-location.json` for offline use. The footer
+  shows how fresh the data is ("UPDATED 3M AGO", or "CACHED DATA" offline).
 - The bar pill and panel accent colors follow your active Omarchy theme.
 
 ## Layout
@@ -79,5 +88,14 @@ gnosis.tide/
 ├── manifest.json     # Plugin manifest (id, entry point, bar-widget metadata)
 ├── BarWidget.qml     # Bar pill: mini gauge + next event time + hover tooltip
 ├── Panel.qml         # Popup: location search, tide wave, gauge, daylight arc, coming up, moon
-└── Model.js          # Tide API parsing, geocoding, interpolation, sun times
+├── Model.js          # Tide API parsing, geocoding, interpolation, sun times
+└── test/             # Model.js unit tests
+```
+
+## Development
+
+`Model.js` has no shell dependencies, so its logic is tested with Node:
+
+```sh
+node --test test/
 ```
