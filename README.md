@@ -2,9 +2,10 @@
 
 A searchable tide bar widget for [Omarchy](https://omarchy.org/).
 
-Adds a tide pill to the bar with a mini water gauge (current level between LOW
-and HIGH) beside the next high/low time (▲/▼). Hovering the pill shows the
-current state at a glance — location, rising/falling, and the present level.
+Adds a tide pill to the bar: a mini water gauge (current level between LOW
+and HIGH) with a ▲/▼ set into it for rising/falling, beside a countdown until
+the tide turns — a ▼ gauge and `5h13` read "falling, low water in 5 h 13 m". Hovering the pill adds the location,
+the present level, and the exact clock time of that next high or low.
 Opening the pill rows out a panel with:
 
 - **Headline** — the place, whether the tide is rising or falling, and a

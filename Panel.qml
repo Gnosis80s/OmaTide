@@ -107,7 +107,8 @@ Panel {
   readonly property string label: (function() {
     if (!root.hasLocation) return "TIDE"
     if (!root.dataLoaded) return root.dataFailed ? "NO DATA" : "…"
-    return Model.barLabel(root.extremes, root.nowMs, root.dataLoaded, root.tzOffset)
+    // The pill's gauge carries ▲/▼ whenever there's a half-cycle to draw.
+    return Model.barLabel(root.extremes, root.nowMs, root.dataLoaded, !root.phaseInfo)
   })()
 
   readonly property string stateText: Model.tideState(root.nextEvent)

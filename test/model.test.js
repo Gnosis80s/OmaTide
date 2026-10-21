@@ -58,10 +58,17 @@ test("locationSlug keeps same-named places apart", () => {
 test("barLabel is never empty once data has loaded", () => {
   const now = Date.UTC(2026, 9, 21, 12, 0)
   const past = [{ ms: now - HOUR, level: 1, high: true, low: false }]
-  assert.equal(M.barLabel(past, now, true, 0), "NO DATA")
-  assert.equal(M.barLabel([], now, false, 0), "…")
-  const future = [{ ms: now + HOUR, level: 1, high: true, low: false }]
-  assert.equal(M.barLabel(future, now, true, 0), "▲ 13:00")
+  assert.equal(M.barLabel(past, now, true), "NO DATA")
+  assert.equal(M.barLabel([], now, false), "…")
+  const future = [{ ms: now + 5 * HOUR + 13 * 60000, level: 1, high: false, low: true }]
+  assert.equal(M.barLabel(future, now, true), "5h13")
+  assert.equal(M.barLabel(future, now, true, true), "▼ 5h13")
+})
+
+test("compactDuration drops hours under an hour and pads minutes", () => {
+  assert.equal(M.compactDuration(42 * 60000), "42m")
+  assert.equal(M.compactDuration(HOUR + 5 * 60000), "1h05")
+  assert.equal(M.compactDuration(-1000), "0m")
 })
 
 test("parseSunTimes picks the location's current day", () => {

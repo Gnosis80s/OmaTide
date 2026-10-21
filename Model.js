@@ -404,11 +404,23 @@ function tideState(event) {
   return event ? (event.high ? "RISING" : "FALLING") : ""
 }
 
-// Never empty: the bar hides the pill on an empty label, and a stale cache
-// with no future event must still leave the panel reachable.
-function barLabel(extremes, ms, loaded, offsetMs) {
+// "5h13" / "42m" — the pill's countdown, as short as it can be and still read.
+function compactDuration(ms) {
+  var total = Math.max(0, Math.round(ms / 60000))
+  var h = Math.floor(total / 60)
+  var m = total % 60
+  return h > 0 ? h + "h" + two(m) : m + "m"
+}
+
+// Pill label: time until the tide turns ("5h13"). A countdown rather than a
+// clock time, so it never reads as a second clock beside the bar's own. The
+// direction normally rides in the pill's gauge; `withArrow` prefixes ▲/▼ for
+// when the gauge has nothing to show. Never empty: the bar hides the pill on
+// an empty label, and a stale cache with no future event must still leave the
+// panel reachable.
+function barLabel(extremes, ms, loaded, withArrow) {
   var next = firstAfter(extremes, ms)
-  if (next) return arrow(next) + " " + formatTime(next.ms, offsetMs)
+  if (next) return (withArrow ? arrow(next) + " " : "") + compactDuration(next.ms - ms)
   return loaded ? "NO DATA" : "…"
 }
 
@@ -636,6 +648,7 @@ if (typeof module !== "undefined") {
     localDayStart: localDayStart,
     formatTimeAt: formatTimeAt,
     daylightStatus: daylightStatus,
-    durationText: durationText
+    durationText: durationText,
+    compactDuration: compactDuration
   }
 }
