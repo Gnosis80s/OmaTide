@@ -1,8 +1,8 @@
-# Omarchy Tide
+# OmaTide
 
 **Know the tide without leaving your desktop.**
 
-Planning a swim, a surf, a beach walk or time on the boat? Tide puts the sea on your [Omarchy](https://omarchy.org/) bar. A small water gauge shows how high the tide is right now and whether it's coming in or going out, with a countdown to the turn. Click it for the full picture: the tide curve, the next highs and lows, daylight, and the moon.
+Planning a swim, a surf, a beach walk or time on the boat? OmaTide puts the sea on your [Omarchy](https://omarchy.org/) bar. A small water gauge shows how high the tide is right now and whether it's coming in or going out, with a countdown to the turn. Click it for the full picture: the tide curve, the next highs and lows, daylight, and the moon.
 
 ![Tide on the Omarchy bar: a rising gauge with 19 minutes to high water](tide-bar.png)
 
@@ -28,7 +28,7 @@ Planning a swim, a surf, a beach walk or time on the boat? Tide puts the sea on 
 ## Install
 
 ```sh
-omarchy plugin add https://github.com/Gnosis80s/OmarchyTide.git --enable
+omarchy plugin add https://github.com/Gnosis80s/OmaTide.git --enable
 ```
 
 That's all. The command downloads the plugin, checks it against Omarchy's plugin format, installs it to `~/.config/omarchy/plugins/gnosis.tide/` and adds it to the center of your bar. The bar reloads without restarting the shell.
