@@ -1,104 +1,87 @@
 # Omarchy Tide
 
-A searchable tide bar widget for [Omarchy](https://omarchy.org/).
+**Know the tide without leaving your desktop.**
 
-Adds a tide pill to the bar: a mini water gauge (current level between LOW
-and HIGH) with a ▲/▼ set into it for rising/falling, beside a countdown until
-the tide turns — a ▼ gauge and `5h13` read "falling, low water in 5 h 13 m". Hovering the pill adds the location,
-the present level, and the exact clock time of that next high or low.
-Opening the pill rows out a panel with:
+Planning a swim, a surf, a beach walk or time on the boat? Tide puts the sea on your [Omarchy](https://omarchy.org/) bar. A small water gauge shows how high the tide is right now and whether it's coming in or going out, with a countdown to the turn. Click it for the full picture: the tide curve, the next highs and lows, daylight, and the moon.
 
-- **Headline** — the place, whether the tide is rising or falling, and a
-  countdown to the next high or low ("LOW IN 4H 21M").
-- **Tide phase** — a rolling 6 h back / 18 h ahead wave of the water level
-  with a NOW marker, ▲/▼ badges on each high and low, a height scale, and a
-  LOW→HIGH water gauge showing how full the tide is right now.
-- **Coming up** — the next four high/low tides with day (Today / Tmrw /
-  weekday), time and level. Heights get two decimals on coasts with a small
-  tidal range so readings stay distinct.
-- **Daylight** — the day's sun arc with dashed sunrise/sunset hairlines (times
-  read straight off the chart) and a dot marking the sun's position right now.
-  Also shown: night shading outside the daylight window, and how long is left
-  in daylight (or, after dark, how long until daylight). The arc spans one
-  local day *at the picked location*, and every time shown is that place's own
-  wall clock — the desktop's timezone is never applied.
-- **Moon phase** (footer) — a drawn lunar disc (lit side facing the sun, waxing right,
-  waning left) with phase, % lit, and age alongside.
+![Tide on the Omarchy bar: a rising gauge with 19 minutes to high water](tide-bar.png)
 
-All times — tides and daylight alike — are the picked place's own wall
-clock. When that differs from the desktop's timezone, the panel says so under
-the location name ("TIMES UTC+2").
+## Everything at a glance
 
-A live location search picks any coastal place. The pick resolves to the
-nearest published tide reference station via the Open Waters tide API
-(api.openwaters.io); sunrise and sunset come from Open-Meteo
-(api.open-meteo.com). Everything is cached per location so the panel works
-offline.
+![The Tide panel for Whitley Bay, UK](tide-panel.png)
 
-## Preview
+- **Bar gauge.** A small water column fills from low to high water, with a ▲ or ▼ for rising or falling. Next to it is the time left until the tide turns: a ▼ with `5h13` means "falling, low water in 5 hours 13 minutes". Hover it for the place, the current height and the exact time of the next high or low.
+- **Headline.** The place, whether the tide is rising or falling, and the countdown ("HIGH IN 19M").
+- **Tide curve.** The water level from 6 hours ago to 18 hours ahead, with a NOW marker, ▲/▼ badges on every high and low, and a height scale. Below it, a gauge shows how full the tide is right now ("99% FULL").
+- **Coming up.** The next four highs and lows, with day (Today, Tmrw or weekday), time and height. On coasts with a small tidal range, heights get two decimals so the readings stay distinct.
+- **Daylight.** The sun's arc for the day, with sunrise and sunset times, night shading and a dot for the sun's position right now. It counts down to sunset, or after dark to sunrise.
+- **Moon phase.** A drawn moon with its phase, how much is lit and its age in days.
 
-The expanded panel on the bar (Whitley Bay, UK):
+## Built for the real coast
 
-![Omarchy Tide expanded panel](tide-panel.png)
+- **Anywhere with a tide.** Search for any coastal town as you type. Tide finds the nearest published tide station, so even an inland pick gives you the closest shore.
+- **Local times, always.** Every time is the clock at the place you picked, not your computer's. If they differ, the panel says so under the location name ("TIMES UTC+2"), so tides abroad aren't off by hours.
+- **Works offline.** Tide data and sunrise and sunset times are cached for each location. With no connection, the panel keeps working from the cache and says "CACHED DATA".
+- **Matches your theme.** The bar gauge and panel accents follow your active Omarchy theme.
+- **Stays out of the way.** Turn off "Countdown on bar" at the bottom of the panel to show only the gauge. Your choice is remembered.
 
 ## Install
-
-Requires an Omarchy system (Hyprland + the Omarchy shell).
 
 ```sh
 omarchy plugin add https://github.com/Gnosis80s/OmarchyTide.git --enable
 ```
 
-The command clones the repo, validates it against the Omarchy plugin schema,
-installs it to `~/.config/omarchy/plugins/gnosis.tide/`, and places it in
-the center of the bar. The bar hot-reloads; no shell restart is needed.
+That's all. The command downloads the plugin, checks it against Omarchy's plugin format, installs it to `~/.config/omarchy/plugins/gnosis.tide/` and adds it to the center of your bar. The bar reloads without restarting the shell.
 
-Not on the bar after all? Enable it manually:
+The first time you open the panel, it asks you to pick a location. Search for your nearest coastal town.
+
+If it isn't on the bar after installing:
 
 ```sh
 omarchy plugin enable gnosis.tide --section center
 ```
 
-## Usage
+To update to the latest version:
 
-- **Left click** on the pill: open/close the tide panel.
-- **Middle click**: refresh the tide data.
-- **Hover** the pill: peek at the current state (location · rising/falling ·
-  level · time to the next high/low).
-- **Countdown on bar** (toggle at the foot of the panel): hide the countdown
-  to leave just the gauge and its ▲/▼ on the bar. Saved across restarts.
-- In the panel, click the location to search; pick a suggestion to load that
-  place. The chosen location persists across restarts.
+```sh
+omarchy plugin update gnosis.tide
+```
 
-## Notes
+### Requirements
 
-- The first time you open the panel you'll be asked to pick a location —
-  search for your nearest coastal town.
-- Coordinates and station are resolved per location; an inland pick resolves
-  to the closest tide station, so results describe the nearest coast.
-- Requires `curl`, `bash`, and GNU `date` (all standard on Arch), plus network
-  access to `api.openwaters.io` (tides) and `api.open-meteo.com` (geocoding and
-  sunrise/sunset) at least once for fresh data.
-- Data is cached to `~/.local/state/omarchy/settings/gnosis-tide-<location>-<coords>-*.json`
-  and the location to `gnosis-tide-location.json` for offline use. The
-  countdown toggle is kept in `gnosis-tide-prefs.json`. The footer
-  shows how fresh the data is ("UPDATED 3M AGO", or "CACHED DATA" offline).
-- The bar pill and panel accent colors follow your active Omarchy theme.
+- An **Omarchy** system (Hyprland and the Omarchy shell).
+- `curl`, `bash` and GNU `date`, all standard on Arch.
+- Internet access to `api.openwaters.io` (tides) and `api.open-meteo.com` (place search, sunrise and sunset), at least once per location.
 
-## Layout
+## Controls
+
+| Action | What it does |
+| --- | --- |
+| **Left click** | Open or close the tide panel |
+| **Middle click** | Refresh the tide data |
+| **Hover** | Show the place, rising or falling, the current height and the time of the next high or low |
+| **Click the location** (in the panel) | Search for a new place; your pick is remembered |
+| **Countdown on bar** (in the panel) | Show or hide the countdown next to the gauge |
+
+## Data and storage
+
+- Tide extremes and the tide curve come from the [Open Waters](https://openwaters.io) tide API. Place search and sunrise and sunset come from [Open-Meteo](https://open-meteo.com).
+- Cached data is saved to `~/.local/state/omarchy/settings/gnosis-tide-<location>-<coords>-*.json`. Your location is saved to `gnosis-tide-location.json` and the countdown setting to `gnosis-tide-prefs.json`. The panel footer shows how fresh the data is ("UPDATED 3M AGO", or "CACHED DATA" when offline).
+
+## Files
 
 ```
 gnosis.tide/
 ├── manifest.json     # Plugin manifest (id, entry point, bar-widget metadata)
-├── BarWidget.qml     # Bar pill: mini gauge + next event time + hover tooltip
-├── Panel.qml         # Popup: location search, tide wave, gauge, daylight arc, coming up, moon
-├── Model.js          # Tide API parsing, geocoding, interpolation, sun times
+├── BarWidget.qml     # Bar gauge: tide level, direction, countdown and hover tooltip
+├── Panel.qml         # Panel: location search, tide curve, coming up, daylight, moon
+├── Model.js          # Tide API parsing, place search, interpolation, sun and moon maths
 └── test/             # Model.js unit tests
 ```
 
 ## Development
 
-`Model.js` has no shell dependencies, so its logic is tested with Node:
+`Model.js` doesn't depend on the shell, so its logic is tested with Node:
 
 ```sh
 node --test test/
