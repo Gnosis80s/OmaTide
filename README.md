@@ -8,7 +8,7 @@ Planning a swim, a surf, a beach walk or time on the boat? OmaTide puts the sea 
 
 ## Everything at a glance
 
-![The Tide panel for Whitley Bay, UK](tide-panel.png)
+![The OmaTide panel for Whitley Bay, UK](preview.png)
 
 - **Bar gauge.** A small water column fills from low to high water, with a ▲ or ▼ for rising or falling. Next to it is the time left until the tide turns: a ▼ with `5h13` means "falling, low water in 5 hours 13 minutes". Hover it for the place, the current height and the exact time of the next high or low.
 - **Headline.** The place, whether the tide is rising or falling, and the countdown ("HIGH IN 19M").
@@ -48,6 +48,18 @@ To update to the latest version:
 omarchy plugin update gnosis.tide
 ```
 
+To remove it:
+
+```sh
+omarchy plugin remove gnosis.tide
+```
+
+Removing the plugin leaves its small cache and settings files behind. To delete those too:
+
+```sh
+rm -f ~/.local/state/omarchy/settings/gnosis-tide-*
+```
+
 ### Requirements
 
 - An **Omarchy** system (Hyprland and the Omarchy shell).
@@ -73,6 +85,8 @@ omarchy plugin update gnosis.tide
 
 ```
 gnosis.tide/
+├── LICENSE           # MIT license
+├── preview.png       # Panel screenshot (also used by the README)
 ├── manifest.json     # Plugin manifest (id, entry point, bar-widget metadata)
 ├── BarWidget.qml     # Bar gauge: tide level, direction, countdown and hover tooltip
 ├── Panel.qml         # Panel: location search, tide curve, coming up, daylight, moon
@@ -87,3 +101,7 @@ gnosis.tide/
 ```sh
 node --test test/
 ```
+
+## License
+
+[MIT](LICENSE) © 2026 Gnosis80s
