@@ -35,6 +35,7 @@ BarWidget {
       // The pill shows a countdown; the clock time it lands on lives here.
       if (p.nextEventText !== "")
         parts.push(p.nextEventText.toLowerCase() + " at " + p.timeText(p.nextEvent.ms))
+      if (p.windHeadline !== "") parts.push("wind " + p.windHeadline.replace(" · ", " "))
       return parts.join(" · ")
     }
     if (p.dataFailed) return p.displayLocationName + " · no tide data"

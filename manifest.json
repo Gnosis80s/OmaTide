@@ -4,7 +4,7 @@
   "name": "OmaTide",
   "version": "1.2.0",
   "author": "Gnosis80s",
-  "description": "Live tides on the Omarchy bar: a gauge with a countdown to the turn, plus a panel with the tide curve, coming highs and lows, daylight and moon phase for any coastal place",
+  "description": "Live tides on the Omarchy bar: a gauge with a countdown to the turn, plus a panel with the tide curve, coming highs and lows, daylight, wind and moon phase for any coastal place",
   "kinds": [
     "bar-widget"
   ],
@@ -13,7 +13,7 @@
   },
   "barWidget": {
     "displayName": "OmaTide",
-    "description": "Tide gauge with a countdown to the turn; click for the tide curve, daylight and moon",
+    "description": "Tide gauge with a countdown to the turn; click for the tide curve, wind, daylight and moon",
     "category": "Info",
     "allowMultiple": false
   }

@@ -2,7 +2,7 @@
 
 **Know the tide without leaving your desktop.**
 
-Planning a swim, a surf, a beach walk or time on the boat? OmaTide puts the sea on your [Omarchy](https://omarchy.org/) bar. A small water gauge shows how high the tide is right now and whether it's coming in or going out, with a countdown to the turn. Click it for the full picture: the tide curve, the next highs and lows, daylight, and the moon.
+Planning a swim, a surf, a beach walk or time on the boat? OmaTide puts the sea on your [Omarchy](https://omarchy.org/) bar. A small water gauge shows how high the tide is right now and whether it's coming in or going out, with a countdown to the turn. Click it for the full picture: the tide curve, the next highs and lows, the wind, daylight, and the moon.
 
 ![Tide on the Omarchy bar: a rising gauge with 19 minutes to high water](tide-bar.png)
 
@@ -15,13 +15,14 @@ Planning a swim, a surf, a beach walk or time on the boat? OmaTide puts the sea 
 - **Tide curve.** The water level from 6 hours ago to 18 hours ahead, with a NOW marker, ▲/▼ badges on every high and low, and a height scale. Below it, a gauge shows how full the tide is right now ("99% FULL").
 - **Coming up.** The next four highs and lows, with day (Today, Tmrw or weekday), time and height. On coasts with a small tidal range, heights get two decimals so the readings stay distinct.
 - **Daylight.** The sun's arc for the day, with sunrise and sunset times, night shading and a dot for the sun's position right now. It counts down to sunset, or after dark to sunrise.
+- **Wind.** A compass arrow pointing where the wind is blowing to, with the direction it comes from, its speed in knots, the gusts and the Beaufort force ("W · 16 kn", "F4 Moderate breeze"). The bar tooltip includes it too. It's only shown while the reading is fresh, never from a stale cache.
 - **Moon phase.** A drawn moon with its phase, how much is lit and its age in days.
 
 ## Built for the real coast
 
 - **Anywhere with a tide.** Search for any coastal town as you type. Tide finds the nearest published tide station, so even an inland pick gives you the closest shore.
 - **Local times, always.** Every time is the clock at the place you picked, not your computer's. If they differ, the panel says so under the location name ("TIMES UTC+2"), so tides abroad aren't off by hours.
-- **Works offline.** Tide data and sunrise and sunset times are cached for each location. With no connection, the panel keeps working from the cache and says "CACHED DATA".
+- **Works offline.** Tide data and sunrise, sunset and wind data are cached for each location. With no connection, the panel keeps working from the cache and says "CACHED DATA".
 - **Matches your theme.** The bar gauge and panel accents follow your active Omarchy theme.
 - **Stays out of the way.** Turn off "Countdown on bar" at the bottom of the panel to show only the gauge. Your choice is remembered.
 
@@ -51,7 +52,7 @@ omarchy plugin update gnosis.tide
 
 - An **Omarchy** system (Hyprland and the Omarchy shell).
 - `curl`, `bash` and GNU `date`, all standard on Arch.
-- Internet access to `api.openwaters.io` (tides) and `api.open-meteo.com` (place search, sunrise and sunset), at least once per location.
+- Internet access to `api.openwaters.io` (tides) and `api.open-meteo.com` (place search, sunrise and sunset, and the wind), at least once per location.
 
 ## Controls
 
@@ -65,7 +66,7 @@ omarchy plugin update gnosis.tide
 
 ## Data and storage
 
-- Tide extremes and the tide curve come from the [Open Waters](https://openwaters.io) tide API. Place search and sunrise and sunset come from [Open-Meteo](https://open-meteo.com).
+- Tide extremes and the tide curve come from the [Open Waters](https://openwaters.io) tide API. Place search, sunrise and sunset, and the wind come from [Open-Meteo](https://open-meteo.com).
 - Cached data is saved to `~/.local/state/omarchy/settings/gnosis-tide-<location>-<coords>-*.json`. Your location is saved to `gnosis-tide-location.json` and the countdown setting to `gnosis-tide-prefs.json`. The panel footer shows how fresh the data is ("UPDATED 3M AGO", or "CACHED DATA" when offline).
 
 ## Files

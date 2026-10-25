@@ -625,6 +625,104 @@ function durationText(ms) {
   return m + "M"
 }
 
+// ---- Wind (Open-Meteo `current` block, asked for in knots).
+//
+// Rides on the same request as the sunrise/sunset data, so it refreshes and
+// caches on the same schedule. `direction` is the meteorological one — the
+// compass bearing the wind blows *from* — and the UI turns the arrow the other
+// way so it points where the air is going.
+
+// Wind older than this is not shown: a cached reply from yesterday would read
+// as a live sea state.
+var WIND_MAX_AGE_MS = 3 * 3600 * 1000
+
+var COMPASS_POINTS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+  "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+
+// Beaufort force by the top of its band in whole knots (F0 calm … F12 hurricane
+// force), so a reading is compared after rounding, as the scale is published.
+var BEAUFORT = [
+  { max: 0, name: "Calm" },
+  { max: 3, name: "Light air" },
+  { max: 6, name: "Light breeze" },
+  { max: 10, name: "Gentle breeze" },
+  { max: 16, name: "Moderate breeze" },
+  { max: 21, name: "Fresh breeze" },
+  { max: 27, name: "Strong breeze" },
+  { max: 33, name: "Near gale" },
+  { max: 40, name: "Gale" },
+  { max: 47, name: "Strong gale" },
+  { max: 55, name: "Storm" },
+  { max: 63, name: "Violent storm" },
+  { max: Infinity, name: "Hurricane force" }
+]
+
+// A finite number, or null — Open-Meteo sends null for a field it has no value for.
+function finiteOrNull(value) {
+  if (value === null || value === undefined || value === "") return null
+  var n = Number(value)
+  return isFinite(n) ? n : null
+}
+
+// Compass point for a bearing in degrees, 16-wind: 0 → "N", 225 → "SW".
+function compassPoint(degrees) {
+  var d = finiteOrNull(degrees)
+  if (d === null) return ""
+  var index = Math.round((((d % 360) + 360) % 360) / 22.5) % 16
+  return COMPASS_POINTS[index]
+}
+
+// Beaufort force number and name for a speed in knots.
+function beaufort(knots) {
+  var k = finiteOrNull(knots)
+  if (k === null || k < 0) return null
+  var whole = Math.round(k)
+  for (var force = 0; force < BEAUFORT.length; force++) {
+    if (whole <= BEAUFORT[force].max) return { force: force, name: BEAUFORT[force].name }
+  }
+  return null
+}
+
+// The location's current wind from an Open-Meteo response: { speed, gusts,
+// direction, timeMs }. Null without a usable speed and direction, or when the
+// observation is older than WIND_MAX_AGE_MS at `nowMs`. Gusts may be null.
+function parseWind(raw, nowMs) {
+  try {
+    var data = JSON.parse(String(raw || ""))
+    var current = data && data.current
+    if (!current) return null
+    var speed = finiteOrNull(current.wind_speed_10m)
+    var direction = finiteOrNull(current.wind_direction_10m)
+    if (speed === null || direction === null || speed < 0) return null
+    var timeMs = dailyMs(current.time, 0)
+    if (isNaN(timeMs)) return null
+    var gusts = finiteOrNull(current.wind_gusts_10m)
+    return windCurrent({
+      speed: speed,
+      gusts: gusts !== null && gusts >= 0 ? gusts : null,
+      direction: ((direction % 360) + 360) % 360,
+      timeMs: timeMs
+    }, nowMs)
+  } catch (e) {
+    return null
+  }
+}
+
+// The wind itself while it is still fresh at `nowMs`, else null. The panel asks
+// this on every clock tick, so a reading that ages out while it stays open (or
+// comes off a stale cache) disappears instead of posing as current.
+function windCurrent(wind, nowMs) {
+  if (!wind) return null
+  var reference = typeof nowMs === "number" ? nowMs : now().getTime()
+  return reference - wind.timeMs > WIND_MAX_AGE_MS ? null : wind
+}
+
+// "12 kn" — whole knots, which is as fine as a wind reading is honest.
+function windSpeedText(knots) {
+  var k = finiteOrNull(knots)
+  return k === null ? "—" : Math.round(k) + " kn"
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     now: now,
@@ -661,6 +759,11 @@ if (typeof module !== "undefined") {
     formatTimeAt: formatTimeAt,
     daylightStatus: daylightStatus,
     durationText: durationText,
-    compactDuration: compactDuration
+    compactDuration: compactDuration,
+    compassPoint: compassPoint,
+    beaufort: beaufort,
+    parseWind: parseWind,
+    windCurrent: windCurrent,
+    windSpeedText: windSpeedText
   }
 }

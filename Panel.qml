@@ -36,6 +36,9 @@ Panel {
   property int extremesRetries: 0
   property int timelineRetries: 0
   property var sunTimes: null
+  // Current wind from the same Open-Meteo reply as the daylight data (null until
+  // one arrives, or when the reading is too old to show).
+  property var wind: null
   // The location the in-flight sun request is for ("" when idle). Requests are
   // single-flight: a location picked mid-request is answered afterwards instead
   // of being dropped, and a reply for a place the user has moved off from is
@@ -127,6 +130,23 @@ Panel {
     if (!root.moon) return ""
     return Math.round(root.moon.illumination * 100) + "% LIT · AGE " + root.moon.ageDays.toFixed(1) + " DAYS"
   })()
+  // Wind as shown: the fresh reading only, with its compass point, Beaufort
+  // force and the arrow's angle. The arrow points where the air is going, so it
+  // is turned 180° from the bearing the wind blows from.
+  readonly property var windInfo: Model.windCurrent(root.wind, root.nowMs)
+  readonly property string windHeadline: root.windInfo
+    ? Model.compassPoint(root.windInfo.direction) + " · " + Model.windSpeedText(root.windInfo.speed)
+    : ""
+  readonly property string windSubline: (function() {
+    var w = root.windInfo
+    if (!w) return ""
+    var parts = []
+    if (w.gusts !== null && Math.round(w.gusts) > Math.round(w.speed)) parts.push("GUSTS " + Model.windSpeedText(w.gusts).toUpperCase())
+    var b = Model.beaufort(w.speed)
+    if (b) parts.push("F" + b.force + " " + b.name.toUpperCase())
+    return parts.join(" · ")
+  })()
+  readonly property real windArrowAngle: root.windInfo ? root.windInfo.direction + 180 : 0
   readonly property var daylightInfo: Model.daylightStatus(root.sunTimes, root.nowMs)
   readonly property string daylightText: (function() {
     var s = root.daylightInfo
@@ -163,6 +183,58 @@ Panel {
   function tick() {
     root.nowMs = (new Date()).getTime()
     root.recomputeCurve()
+  }
+
+  // Paints the wind compass: a faint ring with a tick at each cardinal point
+  // (north's in the accent so the dial reads at a glance) and an arrow turned
+  // to point where the wind is blowing *to*.
+  function paintWind(ctx) {
+    if (!ctx) return
+    var cw = windCanvas.width, ch = windCanvas.height
+    var r = Math.min(cw, ch) / 2 - Style.spaceReal(2)
+    var cx = cw / 2, cy = ch / 2
+    ctx.clearRect(0, 0, cw, ch)
+
+    var fg = root.contentForeground
+    ctx.lineWidth = Style.spaceReal(1)
+    ctx.strokeStyle = Qt.rgba(fg.r, fg.g, fg.b, 0.28)
+    ctx.beginPath()
+    ctx.arc(cx, cy, r, 0, Math.PI * 2)
+    ctx.stroke()
+
+    var tick = Style.spaceReal(4)
+    for (var i = 0; i < 4; i++) {
+      var a = i * Math.PI / 2
+      var sx = Math.sin(a), sy = -Math.cos(a)
+      ctx.strokeStyle = i === 0 ? Color.accent : Qt.rgba(fg.r, fg.g, fg.b, 0.45)
+      ctx.lineWidth = Style.spaceReal(i === 0 ? 2 : 1)
+      ctx.beginPath()
+      ctx.moveTo(cx + sx * r, cy + sy * r)
+      ctx.lineTo(cx + sx * (r - tick), cy + sy * (r - tick))
+      ctx.stroke()
+    }
+
+    if (!root.windInfo) return
+    ctx.save()
+    ctx.translate(cx, cy)
+    ctx.rotate(root.windArrowAngle * Math.PI / 180)
+    var len = r - tick - Style.spaceReal(3)
+    var head = Style.spaceReal(6)
+    ctx.strokeStyle = Color.accent
+    ctx.fillStyle = Color.accent
+    ctx.lineWidth = Style.spaceReal(2)
+    ctx.lineCap = "round"
+    ctx.beginPath()
+    ctx.moveTo(0, len * 0.8)
+    ctx.lineTo(0, -len + head * 0.5)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(0, -len)
+    ctx.lineTo(-head * 0.75, -len + head * 1.3)
+    ctx.lineTo(head * 0.75, -len + head * 1.3)
+    ctx.closePath()
+    ctx.fill()
+    ctx.restore()
   }
 
   // Paints the moon's visible disc: a shaded body with the lit lens laid on
@@ -250,6 +322,7 @@ Panel {
     root.extremes = []
     root.timeline = []
     root.sunTimes = null
+    root.wind = null
     root.sunCachePending = ""
     root.dataLoaded = false
     root.lastUpdatedMs = 0
@@ -449,13 +522,17 @@ Panel {
     geocodeDebounce.stop()
     Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
     root.applyLocation()
-    Qt.callLater(function() { if (moonCanvas) moonCanvas.requestPaint() })
+    Qt.callLater(function() {
+      if (moonCanvas) moonCanvas.requestPaint()
+      if (windCanvas) windCanvas.requestPaint()
+    })
   }
 
   onNowMsChanged: {
     root.recomputeCurve()
     if (moonCanvas) moonCanvas.requestPaint()
   }
+  onWindInfoChanged: if (windCanvas) windCanvas.requestPaint()
   onExtremesChanged: root.recomputeCurve()
   onTimelineChanged: root.recomputeCurve()
 
@@ -649,11 +726,14 @@ Panel {
   //      makes the times absolute and hands back the location's
   //      utc_offset_seconds, so the daylight section follows the picked place
   //      rather than the desktop's timezone; two days are asked for so "today"
-  //      is the location's today and tomorrow's sunrise is real.
+  //      is the location's today and tomorrow's sunrise is real. The same
+  //      request carries the current wind (in knots), so it refreshes and caches
+  //      with the daylight data.
   readonly property string sunUrl: root.hasLocation
     ? "https://api.open-meteo.com/v1/forecast?latitude=" + encodeURIComponent(String(root.configuredLocationState.latitude))
       + "&longitude=" + encodeURIComponent(String(root.configuredLocationState.longitude))
-      + "&daily=sunrise,sunset&timezone=auto&timeformat=unixtime&forecast_days=2"
+      + "&daily=sunrise,sunset&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m"
+      + "&wind_speed_unit=kn&timezone=auto&timeformat=unixtime&forecast_days=2"
     : ""
   readonly property string sunRequestKey: root.locationKey
   readonly property string sunCachePath: root.settingsDir + "/gnosis-tide-" + root.cacheSlug + "-sun.json"
@@ -683,6 +763,7 @@ Panel {
     // Empty body = failed curl, already retried from onExited.
     if (String(raw || "").trim() === "") return
     if (finished !== "" && finished === root.sunRequestKey) {
+      root.wind = Model.parseWind(raw, root.nowMs)
       var parsed = Model.parseSunTimes(raw, root.nowMs)
       if (parsed) {
         root.sunRetries = 0
@@ -759,6 +840,7 @@ Panel {
       root.sunCachePending = ""
       var parsed = Model.parseSunTimes(text(), root.nowMs)
       if (parsed) root.sunTimes = parsed
+      root.wind = Model.parseWind(text(), root.nowMs)
     }
   }
 
@@ -1871,6 +1953,77 @@ Panel {
                 font.pixelSize: Style.font.caption
                 font.letterSpacing: 1
                 font.bold: true
+              }
+            }
+          }
+
+          // ---- Wind: a compass arrow pointing where the wind is blowing to,
+          //      with the bearing it comes from, its speed, the gusts and the
+          //      Beaufort force. Hidden until a fresh reading exists.
+          Item {
+            width: parent.width
+            height: windRow.implicitHeight + Style.space(14)
+            visible: root.hasLocation && root.windInfo !== null
+
+            Rectangle {
+              anchors.left: parent.left
+              anchors.leftMargin: root.contentInset
+              anchors.right: parent.right
+              anchors.rightMargin: root.contentInset
+              anchors.top: parent.top
+              height: Style.spacing.hairline
+              color: root.contentForeground
+              opacity: 0.10
+            }
+
+            Row {
+              id: windRow
+              anchors.left: parent.left
+              anchors.leftMargin: root.contentInset
+              anchors.top: parent.top
+              anchors.topMargin: Style.space(12)
+              spacing: Style.space(12)
+
+              Canvas {
+                id: windCanvas
+                width: Style.space(44)
+                height: width
+                anchors.verticalCenter: parent.verticalCenter
+                onPaint: root.paintWind(getContext("2d"))
+                Component.onCompleted: requestPaint()
+              }
+
+              Column {
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(3)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: "WIND"
+                  color: root.onFg(0.55)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  font.letterSpacing: 1.4
+                  font.bold: true
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: root.windHeadline
+                  color: root.contentForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: root.windSubline
+                  color: root.onFg(0.5)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  font.letterSpacing: 1
+                }
               }
             }
           }

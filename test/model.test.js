@@ -109,3 +109,60 @@ test("parsePrefsFile defaults the countdown on and reads a saved choice", () => 
   assert.equal(M.parsePrefsFile('{"showCountdown":false}').showCountdown, false)
   assert.equal(M.parsePrefsFile('{"showCountdown":"no"}').showCountdown, true)
 })
+
+test("compassPoint names the 16-point bearing and wraps at north", () => {
+  assert.equal(M.compassPoint(0), "N")
+  assert.equal(M.compassPoint(359), "N")
+  assert.equal(M.compassPoint(11.2), "N")
+  assert.equal(M.compassPoint(11.3), "NNE")
+  assert.equal(M.compassPoint(90), "E")
+  assert.equal(M.compassPoint(225), "SW")
+  assert.equal(M.compassPoint(-45), "NW")
+  assert.equal(M.compassPoint(null), "")
+})
+
+test("beaufort bands whole knots the way the scale is published", () => {
+  assert.deepEqual(M.beaufort(0.4), { force: 0, name: "Calm" })
+  assert.equal(M.beaufort(1).force, 1)
+  assert.equal(M.beaufort(3.4).force, 1)
+  assert.equal(M.beaufort(4).force, 2)
+  assert.deepEqual(M.beaufort(12), { force: 4, name: "Moderate breeze" })
+  assert.equal(M.beaufort(34).force, 8)
+  assert.equal(M.beaufort(64).force, 12)
+  assert.equal(M.beaufort(null), null)
+  assert.equal(M.beaufort(-2), null)
+})
+
+test("parseWind reads the current block and keeps direction in 0-360", () => {
+  const now = Date.UTC(2026, 9, 25, 12, 0)
+  const raw = JSON.stringify({
+    current: { time: now / 1000 - 600, wind_speed_10m: 12.4, wind_direction_10m: 225, wind_gusts_10m: 19.8 }
+  })
+  assert.deepEqual(M.parseWind(raw, now), {
+    speed: 12.4, gusts: 19.8, direction: 225, timeMs: now - 600 * 1000
+  })
+  const wrapped = JSON.stringify({ current: { time: now / 1000, wind_speed_10m: 5, wind_direction_10m: 360 } })
+  assert.equal(M.parseWind(wrapped, now).direction, 0)
+})
+
+test("parseWind tolerates missing gusts and rejects unusable or stale data", () => {
+  const now = Date.UTC(2026, 9, 25, 12, 0)
+  const t = now / 1000
+  const noGusts = JSON.stringify({ current: { time: t, wind_speed_10m: 6, wind_direction_10m: 90, wind_gusts_10m: null } })
+  assert.equal(M.parseWind(noGusts, now).gusts, null)
+  assert.equal(M.parseWind(JSON.stringify({ daily: {} }), now), null)
+  assert.equal(M.parseWind(JSON.stringify({ current: { time: t, wind_speed_10m: null, wind_direction_10m: 90 } }), now), null)
+  assert.equal(M.parseWind(JSON.stringify({ current: { time: t, wind_speed_10m: 6, wind_direction_10m: null } }), now), null)
+  assert.equal(M.parseWind("not json", now), null)
+  // A cached reply from hours ago is not a live sea state.
+  const stale = JSON.stringify({ current: { time: t - 4 * 3600, wind_speed_10m: 6, wind_direction_10m: 90 } })
+  assert.equal(M.parseWind(stale, now), null)
+  const fresh = JSON.stringify({ current: { time: t - 2 * 3600, wind_speed_10m: 6, wind_direction_10m: 90 } })
+  assert.notEqual(M.parseWind(fresh, now), null)
+})
+
+test("windSpeedText rounds to whole knots", () => {
+  assert.equal(M.windSpeedText(12.4), "12 kn")
+  assert.equal(M.windSpeedText(12.5), "13 kn")
+  assert.equal(M.windSpeedText(null), "—")
+})
